@@ -1,0 +1,152 @@
+---
+title: "Synthetic Control-CA Tobacco"
+author: "YC"
+date: "2024-06-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Synthetic Control tutorial
+
+This tutorial aims to reproduce the results of Abadie et al. 2010, which evaluates the impact of Proposition 99 on cigarette consumption in California. This tutorial will use the `Synth` package in R, which implements synthetic control methods used in comparative case studies. These methods construct a synthetic control unit as weighted average of available control units that best approximate the relevant characteristics of the treated unit prior to the treatment.
+
+```{r}
+library(tidyverse)
+library(skimr)
+library(Synth)
+library(SCtools)
+library(rio)
+```
+
+## Data
+
+Read in the [smoking example dataset](https://github.com/edunford/tidysynth/tree/master/data)
+
+```{r}
+dt_smoke = import("./data/smoking.rda")
+```
+### Data exploration
+
+```{r}
+glimpse(dt_smoke)
+```
+
+```{r}
+skim(dt_smoke)
+```
+
+### Prep the data
+
+```{r}
+
+
+dt_smoke$st = as.numeric(as.factor(dt_smoke$state))
+ctr_doners = unique(dt_smoke$st)
+ctr_doners = ctr_doners[ctr_doners != 3]
+
+
+smoke_out = dataprep(
+  foo = dt_smoke,  # dataset to be prepared
+  
+  predictors = c("lnincome", "retprice", "age15to24"),
+  predictors.op = "mean", # operation on the predictors
+  time.predictors.prior = 1980:1988,
+  
+  # Special predictors with repective time periods and operations
+  special.predictors = list(
+    list("beer", 1984:1988, "mean"),
+    list("cigsale", 1975, "mean"),
+    list("cigsale", 1980, "mean"),
+    list("cigsale", 1988, "mean")
+  ),
+  
+  dependent = "cigsale",
+  unit.variable = "st",
+  unit.names.variable = "state",
+  
+  time.variable = "year",
+  treatment.identifier = 3,
+  controls.identifier = ctr_doners,
+  
+  time.optimize.ssr = 1970:1988,
+  time.plot = 1970:2000
+  
+)
+
+
+```
+
+```{r}
+# Treatment unit predictors
+smoke_out$X1
+```
+
+```{r}
+# Outcome variables BEFORE treatment
+smoke_out$Z1
+```
+## Running the model
+
+To get the optimal weights
+
+```{r}
+ synth_out = synth(data.prep.obj = smoke_out,
+                    method = "BFGS" #   set optim() to use the BFGS quasi-Newton algorithm. 
+                    )
+
+```
+## Results
+
+Compares pre-treatment predictor values for the treated unit, the synthetic control unit, and all the units in the sample.
+
+```{r}
+
+synth_tables = synth.tab(dataprep.res = smoke_out,
+                           synth.res    = synth_out
+                           )
+synth_tables$tab.pred
+```
+The weight corresponding to each predictor
+
+```{r}
+synth_tables$tab.v
+```
+The weight corresponding to each potential control unit
+
+```{r}
+synth_tables$tab.w
+```
+
+### Plot
+
+Treatment vs synthetic control
+
+```{r}
+path.plot(synth.res = synth_out,
+           dataprep.res = smoke_out,
+           Ylab = "Cigar sales",
+           Xlab = "year",
+           Legend = c("California","synthetic control"),
+           Legend.position = "bottomright"
+           )
+```
+
+Gaps plot
+
+```{r}
+
+gaps.plot(synth.res = synth_out,
+           dataprep.res = smoke_out,
+           Ylab = "Cigar sales",
+           Xlab = "year"
+           )
+
+```
+
+
+### References
+Abadie, A., Diamond, A., & Hainmueller, J. (2010). Synthetic Control Methods for Comparative Case Studies: Estimating the Effect of California’s Tobacco Control Program. Journal of the American Statistical Association, 105(490), 493–505. https://doi.org/10.1198/jasa.2009.ap08746
+
